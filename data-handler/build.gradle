@@ -8,6 +8,7 @@
 
 // Apply the java-library plugin to add support for Java Library
 apply plugin: 'java-library'
+apply plugin: 'maven-publish'
 
 // In this section you declare where to find the dependencies of your project
 repositories {
@@ -31,5 +32,41 @@ dependencies {
 
     // Use JUnit test framework
     testImplementation 'junit:junit:4.12'
+}
+
+group = 'com.github.helegraf'
+version = 'SNAPSHOT'
+
+task sourcesJar(type: Jar) {
+    from sourceSets.main.allJava
+    classifier = 'sources'
+}
+
+task javadocJar(type: Jar) {
+    from javadoc
+    classifier = 'javadoc'
+}
+
+// This is just for publishing to mavenLocal and included only for jitpack.io support
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            artifactId = 'data-handler'
+            from components.java
+            artifact sourcesJar
+            artifact javadocJar
+            pom {
+                name = 'data-handler'
+                description = 'A project to handle evaluation data of rankers, classifiers, meta features, etc.'
+                url = 'https://github.com/helegraf/data-handling'
+                licenses {
+                    license {
+                        name = 'GNU General Public Licencse 3'
+                        url = 'https://www.gnu.org/licenses/gpl-3.0.de.html'
+                    }
+                }
+            }
+        }
+    }
 }
 
