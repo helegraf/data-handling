@@ -51,12 +51,12 @@ task javadocJar(type: Jar) {
 publishing {
     publications {
         mavenJava(MavenPublication) {
-            artifactId = 'data-handler'
+            artifactId = 'data-handling'
             from components.java
             artifact sourcesJar
             artifact javadocJar
             pom {
-                name = 'data-handler'
+                name = 'data-handling'
                 description = 'A project to handle evaluation data of rankers, classifiers, meta features, etc.'
                 url = 'https://github.com/helegraf/data-handling'
                 licenses {
