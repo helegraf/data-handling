@@ -1,18 +1,20 @@
 package dataHandling.mySQL;
 
-
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.TreeSet;
 
 import weka.classifiers.AbstractClassifier;
 import weka.core.Attribute;
 import weka.core.DenseInstance;
+import weka.core.FastVector;
 import weka.core.Instances;
 
 /**
@@ -44,6 +46,7 @@ public class MetaDataDataBaseConnection {
 	public static final String TABLE_NAME_DATASET_SET_MEMBERS = "dataset_set_members";
 
 	public static final String COLUMN_LABEL_DATASET_ID = "dataset_id";
+	public static final String COLUMN_LABEL_DATASET_ORIGIN = "dataset_origin";
 	public static final String COLUMN_LABEL_DATASET_NAME = "dataset_name";
 	public static final String COLUMN_LABEL_DATASET_SET_NAME = "dataset_set_name";
 
@@ -63,6 +66,8 @@ public class MetaDataDataBaseConnection {
 	public static final String JOB_STATUS_RUNNING = "running";
 	public static final String JOB_STATUS_FINISHED = "finished";
 	public static final String JOB_STATUS_ERROR = "error";
+
+	public static final String dataset_origin_separator = ":";
 
 	/**
 	 * The string used to separate a classifier from its configuration
@@ -112,25 +117,28 @@ public class MetaDataDataBaseConnection {
 	 * @throws SQLException
 	 *             If something goes wrong while connecting to the data base
 	 */
-	public Instances getClassifierPerformancesForDataSet(Integer datasetId, String classifierSetName)
-			throws SQLException {
+	public Instances getClassifierPerformancesForDataSet(Integer datasetId, String datasetOrigin,
+			String classifierSetName) throws SQLException {
 		// Get available meta features
 		List<String> classifierSetMembers = getMembersOfClassifierSet(classifierSetName);
 
 		// Get meta feature data for data set
 		String query = String.format(
-				"SELECT * FROM (SELECT %s, %s, %s, %s FROM %s WHERE %s=?) AS selected_runs INNER JOIN (SELECT %s, %s FROM %s WHERE %s=?) AS selected_classifiers ON selected_runs.%s=selected_classifiers.%s  AND selected_runs.%s=selected_classifiers.%s",
-				COLUMN_LABEL_DATASET_ID, COLUMN_LABEL_CLASSIFIER_NAME, COLUMN_LABEL_CLASSIFIER_CONFIGURATION,
-				COLUMN_LABEL_CLASSIFIER_PERFORMANCE, TABLE_NAME_CLASSIFIER_RUNS, COLUMN_LABEL_DATASET_ID,
-				COLUMN_LABEL_CLASSIFIER_NAME, COLUMN_LABEL_CLASSIFIER_CONFIGURATION, TABLE_NAME_CLASSIFIER_SET_MEMBERS,
+				"SELECT * FROM (SELECT %s, %s, %s, %s, %s FROM %s WHERE %s=? AND %s =?) AS selected_runs INNER JOIN (SELECT %s, %s FROM %s WHERE %s=?) AS selected_classifiers ON selected_runs.%s=selected_classifiers.%s  AND selected_runs.%s=selected_classifiers.%s",
+				COLUMN_LABEL_DATASET_ID, COLUMN_LABEL_DATASET_ORIGIN, COLUMN_LABEL_CLASSIFIER_NAME,
+				COLUMN_LABEL_CLASSIFIER_CONFIGURATION, COLUMN_LABEL_CLASSIFIER_PERFORMANCE, TABLE_NAME_CLASSIFIER_RUNS,
+				COLUMN_LABEL_DATASET_ID, COLUMN_LABEL_DATASET_ORIGIN, COLUMN_LABEL_CLASSIFIER_NAME,
+				COLUMN_LABEL_CLASSIFIER_CONFIGURATION, TABLE_NAME_CLASSIFIER_SET_MEMBERS,
 				COLUMN_LABEL_CLASSIFIER_SET_NAME, COLUMN_LABEL_CLASSIFIER_NAME, COLUMN_LABEL_CLASSIFIER_NAME,
 				COLUMN_LABEL_CLASSIFIER_CONFIGURATION, COLUMN_LABEL_CLASSIFIER_CONFIGURATION);
 
 		openConnection();
 
-		ResultSet resultSet = adapter.getResultsOfQuery(query, Arrays.asList(datasetId.toString(), classifierSetName));
-		Instances result = getInstancesFromResultSetForClassifiers(resultSet, Arrays.asList(datasetId),
-				classifierSetMembers, datasetId + "_" + classifierSetName + "_performanceValues");
+		ResultSet resultSet = adapter.getResultsOfQuery(query,
+				Arrays.asList(datasetId.toString(), datasetOrigin, classifierSetName));
+		Instances result = getInstancesFromResultSetForClassifiers(resultSet,
+				Arrays.asList(merge(datasetId, datasetOrigin)), classifierSetMembers,
+				datasetId + "_" + classifierSetName + "_performanceValues");
 
 		closeConnection();
 		return result;
@@ -154,16 +162,41 @@ public class MetaDataDataBaseConnection {
 			throws SQLException {
 		// Get available meta features and data set ids
 		List<String> classifierSetMembers = getMembersOfClassifierSet(classifierSetName);
-		List<Integer> datasetIds = getMembersOfDatasetSet(dataSetSetName);
+		List<String> datasetIds = getMembersOfDatasetSet(dataSetSetName);
 
 		// Get meta feature data for data set
 		String query = String.format(
-				"SELECT * FROM (SELECT %s, %s, %s, %s FROM %s WHERE %s IN (SELECT %s FROM %s WHERE %s=?)) AS selected_runs INNER JOIN (SELECT %s, %s FROM %s WHERE %s=?) AS selected_classifiers ON selected_runs.%s=selected_classifiers.%s  AND selected_runs.%s=selected_classifiers.%s",
-				COLUMN_LABEL_DATASET_ID, COLUMN_LABEL_CLASSIFIER_NAME, COLUMN_LABEL_CLASSIFIER_CONFIGURATION,
-				COLUMN_LABEL_CLASSIFIER_PERFORMANCE, TABLE_NAME_CLASSIFIER_RUNS, COLUMN_LABEL_DATASET_ID,
-				COLUMN_LABEL_DATASET_ID, TABLE_NAME_DATASET_SET_MEMBERS, COLUMN_LABEL_DATASET_SET_NAME,
-				COLUMN_LABEL_CLASSIFIER_NAME, COLUMN_LABEL_CLASSIFIER_CONFIGURATION, TABLE_NAME_CLASSIFIER_SET_MEMBERS,
-				COLUMN_LABEL_CLASSIFIER_SET_NAME, COLUMN_LABEL_CLASSIFIER_NAME, COLUMN_LABEL_CLASSIFIER_NAME,
+				"SELECT * FROM (SELECT %s, %s, %s, %s, %s FROM %s WHERE EXISTS (SELECT * FROM %s WHERE %s=? AND %s.%s=%s.%s AND %s.%s=%s.%s)) AS selected_runs INNER JOIN (SELECT %s, %s FROM %s WHERE %s=?) AS selected_classifiers ON selected_runs.%s=selected_classifiers.%s  AND selected_runs.%s=selected_classifiers.%s",
+				COLUMN_LABEL_DATASET_ID, 
+				COLUMN_LABEL_DATASET_ORIGIN, 
+				COLUMN_LABEL_CLASSIFIER_NAME, 
+				COLUMN_LABEL_CLASSIFIER_CONFIGURATION,
+				COLUMN_LABEL_CLASSIFIER_PERFORMANCE, 
+				
+				TABLE_NAME_CLASSIFIER_RUNS, 
+				
+				TABLE_NAME_DATASET_SET_MEMBERS, 
+				
+				COLUMN_LABEL_DATASET_SET_NAME,
+				
+				TABLE_NAME_CLASSIFIER_RUNS,
+				COLUMN_LABEL_DATASET_ID,
+				TABLE_NAME_DATASET_SET_MEMBERS,
+				COLUMN_LABEL_DATASET_ID,
+				
+				TABLE_NAME_CLASSIFIER_RUNS,
+				COLUMN_LABEL_DATASET_ORIGIN,
+				TABLE_NAME_DATASET_SET_MEMBERS,
+				COLUMN_LABEL_DATASET_ORIGIN,
+				
+				COLUMN_LABEL_CLASSIFIER_NAME, 
+				COLUMN_LABEL_CLASSIFIER_CONFIGURATION, 
+				
+				TABLE_NAME_CLASSIFIER_SET_MEMBERS,
+				
+				COLUMN_LABEL_CLASSIFIER_SET_NAME, 
+				
+				COLUMN_LABEL_CLASSIFIER_NAME, COLUMN_LABEL_CLASSIFIER_NAME,				
 				COLUMN_LABEL_CLASSIFIER_CONFIGURATION, COLUMN_LABEL_CLASSIFIER_CONFIGURATION);
 
 		openConnection();
@@ -190,23 +223,47 @@ public class MetaDataDataBaseConnection {
 	 * @throws SQLException
 	 *             If something goes wrong while connecting to the data base
 	 */
-	public Instances getMetaDataSetForDataSet(Integer datasetId, String metaDataSetName) throws SQLException {
+	public Instances getMetaDataSetForDataSet(Integer datasetId, String datasetOrigin, String metaDataSetName)
+			throws SQLException {
 		// Get available classifiers
 		List<String> metaDataSetMembers = getMembersOfMetadataSet(metaDataSetName);
 
 		// Construct query
 		String query = String.format(
-				"SELECT %s, %s, %s FROM (SELECT %s, %s FROM %s WHERE %s=?) AS selected_runs INNER JOIN %s ON selected_runs.%s=%s.%s WHERE %s IN (SELECT %s FROM %s WHERE %s=?)",
-				COLUMN_LABEL_DATASET_ID, COLUMN_LABEL_METAFEATURE_NAME, COLUMN_LABEL_METAFEATURE_VALUE,
-				COLUMN_LABEL_METAFEATURE_RUN_ID, COLUMN_LABEL_DATASET_ID, TABLE_NAME_METAFEATURE_RUNS,
-				COLUMN_LABEL_DATASET_ID, TABLE_NAME_METAFEATURE_VALUES, COLUMN_LABEL_METAFEATURE_RUN_ID,
-				TABLE_NAME_METAFEATURE_VALUES, COLUMN_LABEL_METAFEATURE_RUN_ID, COLUMN_LABEL_METAFEATURE_NAME,
-				COLUMN_LABEL_METAFEATURE_NAME, TABLE_NAME_METAFEATURE_SET_MEMBERS, COLUMN_LABEL_METAFEATURE_SET_NAME);
+				"SELECT %s, %s, %s, %s FROM (SELECT %s, %s, %s FROM %s WHERE %s=? AND %s=?) AS selected_runs INNER JOIN %s ON selected_runs.%s=%s.%s WHERE %s IN (SELECT %s FROM %s WHERE %s=?)",
+				COLUMN_LABEL_DATASET_ID, 
+				COLUMN_LABEL_DATASET_ORIGIN, 
+				COLUMN_LABEL_METAFEATURE_NAME,
+				COLUMN_LABEL_METAFEATURE_VALUE, 
+				
+				COLUMN_LABEL_METAFEATURE_RUN_ID, 
+				COLUMN_LABEL_DATASET_ID,
+				COLUMN_LABEL_DATASET_ORIGIN, 
+				
+				TABLE_NAME_METAFEATURE_RUNS, 
+				
+				COLUMN_LABEL_DATASET_ID,
+				COLUMN_LABEL_DATASET_ORIGIN, 
+				
+				TABLE_NAME_METAFEATURE_VALUES, 
+				
+				COLUMN_LABEL_METAFEATURE_RUN_ID,
+				TABLE_NAME_METAFEATURE_VALUES, 
+				COLUMN_LABEL_METAFEATURE_RUN_ID, 
+				
+				COLUMN_LABEL_METAFEATURE_NAME,
+				
+				COLUMN_LABEL_METAFEATURE_NAME, 
+				
+				TABLE_NAME_METAFEATURE_SET_MEMBERS, 
+				
+				COLUMN_LABEL_METAFEATURE_SET_NAME);
 
 		openConnection();
 
-		ResultSet resultSet = adapter.getResultsOfQuery(query, Arrays.asList(datasetId.toString(), metaDataSetName));
-		Instances result = getInstancesFromResultSetForMetaData(resultSet, Arrays.asList(datasetId), metaDataSetMembers,
+		ResultSet resultSet = adapter.getResultsOfQuery(query, Arrays.asList(datasetId.toString(),datasetOrigin, metaDataSetName));
+		Instances result = getInstancesFromResultSetForMetaData(resultSet,
+				Arrays.asList(merge(datasetId, datasetOrigin)), metaDataSetMembers,
 				datasetId + "_" + metaDataSetName + "_metafeatures");
 
 		closeConnection();
@@ -228,27 +285,53 @@ public class MetaDataDataBaseConnection {
 	 *             If something goes wrong while connecting to the data base
 	 */
 	public Instances getMetaDataSetForDataSetSet(String dataSetSetName, String metaDataSetSetName) throws SQLException {
-		List<Integer> datasetIds = getMembersOfDatasetSet(dataSetSetName);
+		List<String> datasetIds = getMembersOfDatasetSet(dataSetSetName);
 		List<String> metaDataSetMembers = getMembersOfMetadataSet(metaDataSetSetName);
 
 		String query = String.format(
-				"SELECT %s, %s, %s FROM (SELECT %s, %s FROM %s WHERE %s IN (SELECT %s FROM %s WHERE %s=?)) AS selected_runs INNER JOIN %s ON selected_runs.%s=%s.%s WHERE %s IN (SELECT %s FROM %s WHERE %s=?) ORDER BY %s",
-				COLUMN_LABEL_DATASET_ID, MetaDataDataBaseConnection.COLUMN_LABEL_METAFEATURE_NAME,
-				MetaDataDataBaseConnection.COLUMN_LABEL_METAFEATURE_VALUE,
-				MetaDataDataBaseConnection.COLUMN_LABEL_METAFEATURE_RUN_ID, COLUMN_LABEL_DATASET_ID,
-				MetaDataDataBaseConnection.TABLE_NAME_METAFEATURE_RUNS, COLUMN_LABEL_DATASET_ID,
-				COLUMN_LABEL_DATASET_ID, TABLE_NAME_DATASET_SET_MEMBERS, COLUMN_LABEL_DATASET_SET_NAME,
-				MetaDataDataBaseConnection.TABLE_NAME_METAFEATURE_VALUES,
-				MetaDataDataBaseConnection.COLUMN_LABEL_METAFEATURE_RUN_ID,
-				MetaDataDataBaseConnection.TABLE_NAME_METAFEATURE_VALUES,
-				MetaDataDataBaseConnection.COLUMN_LABEL_METAFEATURE_RUN_ID,
-				MetaDataDataBaseConnection.COLUMN_LABEL_METAFEATURE_NAME,
-				MetaDataDataBaseConnection.COLUMN_LABEL_METAFEATURE_NAME,
-				MetaDataDataBaseConnection.TABLE_NAME_METAFEATURE_SET_MEMBERS,
-				MetaDataDataBaseConnection.COLUMN_LABEL_METAFEATURE_SET_NAME, COLUMN_LABEL_DATASET_ID);
+				"SELECT %s, %s, %s, %s FROM (SELECT %s, %s, %s FROM %s WHERE EXISTS (SELECT * FROM %s WHERE %s=? AND %s.%s=%s.%s AND %s.%s=%s.%s)) AS selected_runs INNER JOIN %s ON selected_runs.%s=%s.%s WHERE %s IN (SELECT %s FROM %s WHERE %s=?) ORDER BY %s, %s",
+				COLUMN_LABEL_DATASET_ID,
+				COLUMN_LABEL_DATASET_ORIGIN, 
+				COLUMN_LABEL_METAFEATURE_NAME,
+				COLUMN_LABEL_METAFEATURE_VALUE, 
+				
+				COLUMN_LABEL_METAFEATURE_RUN_ID, 
+				COLUMN_LABEL_DATASET_ID,
+				COLUMN_LABEL_DATASET_ORIGIN, 
+				
+				TABLE_NAME_METAFEATURE_RUNS, 
+				
+				TABLE_NAME_DATASET_SET_MEMBERS, 
+				
+				COLUMN_LABEL_DATASET_SET_NAME, 
+				
+				TABLE_NAME_METAFEATURE_RUNS,
+				COLUMN_LABEL_DATASET_ID,
+				TABLE_NAME_DATASET_SET_MEMBERS,
+				COLUMN_LABEL_DATASET_ID, 
+				
+				TABLE_NAME_METAFEATURE_RUNS,
+				COLUMN_LABEL_DATASET_ORIGIN,
+				TABLE_NAME_DATASET_SET_MEMBERS,
+				COLUMN_LABEL_DATASET_ORIGIN, 
+					
+				TABLE_NAME_METAFEATURE_VALUES,
+				
+				COLUMN_LABEL_METAFEATURE_RUN_ID, 
+				TABLE_NAME_METAFEATURE_VALUES, 
+				COLUMN_LABEL_METAFEATURE_RUN_ID,
+				
+				COLUMN_LABEL_METAFEATURE_NAME, 
+				
+				COLUMN_LABEL_METAFEATURE_NAME, 
+				TABLE_NAME_METAFEATURE_SET_MEMBERS,
+				COLUMN_LABEL_METAFEATURE_SET_NAME, 
+				
+				COLUMN_LABEL_DATASET_ID, 
+				COLUMN_LABEL_DATASET_ORIGIN);
 
 		openConnection();
-
+		
 		ResultSet resultSet = adapter.getResultsOfQuery(query, Arrays.asList(dataSetSetName, metaDataSetSetName));
 		Instances result = getInstancesFromResultSetForMetaData(resultSet, datasetIds, metaDataSetMembers,
 				dataSetSetName + "_" + metaDataSetSetName);
@@ -331,23 +414,25 @@ public class MetaDataDataBaseConnection {
 	 * @throws SQLException
 	 *             If something goes wrong while connecting to the data base
 	 */
-	public ArrayList<Integer> getMembersOfDatasetSet(String setName) throws SQLException {
+	public ArrayList<String> getMembersOfDatasetSet(String setName) throws SQLException {
 		openConnection();
 
 		// Formulate query
-		String query = String.format("SELECT %s FROM %s WHERE %s=? ORDER BY %s", COLUMN_LABEL_DATASET_ID,
-				TABLE_NAME_DATASET_SET_MEMBERS, COLUMN_LABEL_DATASET_SET_NAME, COLUMN_LABEL_DATASET_ID);
+		String query = String.format("SELECT %s, %s FROM %s WHERE %s=? ORDER BY %s, %s", COLUMN_LABEL_DATASET_ID,
+				COLUMN_LABEL_DATASET_ORIGIN, TABLE_NAME_DATASET_SET_MEMBERS, COLUMN_LABEL_DATASET_SET_NAME,
+				COLUMN_LABEL_DATASET_ID, COLUMN_LABEL_DATASET_ORIGIN);
 		ResultSet resultSet = adapter.getResultsOfQuery(query, Arrays.asList(setName));
 
 		// Collect members
-		ArrayList<Integer> metaDataSetMembers = new ArrayList<Integer>();
+		TreeSet<String> metaDataSetMembers = new TreeSet<>();
 		while (resultSet.next()) {
 			int datasetId = resultSet.getInt(COLUMN_LABEL_DATASET_ID);
-			metaDataSetMembers.add(datasetId);
+			String datasetOrigin = resultSet.getString(COLUMN_LABEL_DATASET_ORIGIN);
+			metaDataSetMembers.add(merge(datasetId, datasetOrigin));
 		}
 
 		closeConnection();
-		return metaDataSetMembers;
+		return new ArrayList<String>(metaDataSetMembers);
 	}
 
 	/**
@@ -402,9 +487,9 @@ public class MetaDataDataBaseConnection {
 	 * @throws SQLException
 	 *             if something goes wrong while connecting to the data base
 	 */
-	public void addClassifierPerformance(int datasetId, String classifierWithConfig, String evaluationMethod,
+	public void addClassifierPerformance(int datasetId, String datasetOrigin, String classifierWithConfig, String evaluationMethod,
 			double performance) throws SQLException {
-		int runId = addClassifierExperiment(datasetId, classifierWithConfig, evaluationMethod);
+		int runId = addClassifierExperiment(datasetId, datasetOrigin, classifierWithConfig, evaluationMethod);
 		addClassifierPerformanceForRun(runId, performance);
 	}
 
@@ -456,7 +541,7 @@ public class MetaDataDataBaseConnection {
 	 * @throws SQLException
 	 *             If something goes wrong while connecting to the data base
 	 */
-	public int addClassifierExperiment(int datasetId, String classifierWithConfig, String evaluationMethod)
+	public int addClassifierExperiment(int datasetId, String datasetOrigin, String classifierWithConfig, String evaluationMethod)
 			throws SQLException {
 		openConnection();
 
@@ -466,6 +551,7 @@ public class MetaDataDataBaseConnection {
 		// add new run
 		HashMap<String, Object> map = new HashMap<String, Object>();
 		map.put(COLUMN_LABEL_DATASET_ID, datasetId);
+		map.put(COLUMN_LABEL_DATASET_ORIGIN, datasetOrigin);
 		map.put(COLUMN_LABEL_CLASSIFIER_NAME, classifierNameAndConfig[0]);
 		map.put(COLUMN_LABEL_CLASSIFIER_CONFIGURATION, classifierNameAndConfig[1]);
 		map.put(COLUMN_LABEL_CLASSIFIER_EVALUATION_METHOD, evaluationMethod);
@@ -473,7 +559,7 @@ public class MetaDataDataBaseConnection {
 		try {
 			runId = adapter.insert(TABLE_NAME_CLASSIFIER_RUNS, map);
 		} catch (SQLException e) {
-			System.err.println("Could not add classifier experiment: datasetId " + datasetId + " classifier "
+			System.err.println("Could not add classifier experiment: datasetId " + datasetId + "datasetOrigin" + datasetOrigin +" classifier "
 					+ classifierWithConfig + " evaluation method " + evaluationMethod);
 			throw e;
 		}
@@ -498,12 +584,12 @@ public class MetaDataDataBaseConnection {
 	 * @throws SQLException
 	 *             If something goes wrong while connecting to the data base
 	 */
-	public void addMetaDataForDataSet(int datasetId, HashMap<String, Double> featureValues,
+	public void addMetaDataForDataSet(int datasetId, String datasetOrigin, HashMap<String, Double> featureValues,
 			HashMap<String, Double> groupTimes, Integer runId) throws SQLException {
 
 		int createdRunId;
 		if (runId == null) {
-			createdRunId = addMetaFeatureExperiment(datasetId);
+			createdRunId = addMetaFeatureExperiment(datasetId, datasetOrigin);
 		} else {
 			createdRunId = runId;
 		}
@@ -549,12 +635,13 @@ public class MetaDataDataBaseConnection {
 	 * @throws SQLException
 	 *             If something goes wrong while connecting to the data base
 	 */
-	public int addMetaFeatureExperiment(int datasetId) throws SQLException {
+	public int addMetaFeatureExperiment(int datasetId, String datasetOrigin) throws SQLException {
 		openConnection();
 
 		// add new run
-		HashMap<String, Integer> map = new HashMap<String, Integer>();
+		HashMap<String, Object> map = new HashMap<>();
 		map.put(COLUMN_LABEL_DATASET_ID, datasetId);
+		map.put(COLUMN_LABEL_DATASET_ORIGIN, datasetOrigin);
 		int runId = adapter.insert(MetaDataDataBaseConnection.TABLE_NAME_METAFEATURE_RUNS, map);
 
 		closeConnection();
@@ -632,7 +719,7 @@ public class MetaDataDataBaseConnection {
 	 * @throws SQLException
 	 *             If something goes wrong while connecting to the data base
 	 */
-	public void addDatasetSet(String setName, List<Integer> members) throws SQLException {
+	public void addDatasetSet(String setName, List<Integer> memberIds, List<String> memberOrigins) throws SQLException {
 		openConnection();
 
 		// add set name to sets
@@ -643,27 +730,33 @@ public class MetaDataDataBaseConnection {
 		// add members to set
 		map = new HashMap<String, String>();
 		map.put(COLUMN_LABEL_DATASET_SET_NAME, setName);
-		for (Integer member : members) {
-			map.put(COLUMN_LABEL_DATASET_ID, member.toString());
+		for (int i = 0; i < memberIds.size(); i++) {
+			map.put(COLUMN_LABEL_DATASET_ID, memberIds.get(i).toString());
+			map.put(COLUMN_LABEL_DATASET_ORIGIN, memberOrigins.get(i));
 			adapter.insert_noNewValues(TABLE_NAME_DATASET_SET_MEMBERS, map);
 		}
 
 		closeConnection();
 	}
-	
+
 	/**
 	 * Add groups of meta features to the data base.
 	 * 
-	 * @param metafeatureGroups The meta feature group names together with the features
-	 * @param host The host for the MySQL connection
-	 * @param user The user name for the MySQL connection
-	 * @param pw The password for the MySQL connection
-	 * @param database The data base for the MySQL connection
+	 * @param metafeatureGroups
+	 *            The meta feature group names together with the features
+	 * @param host
+	 *            The host for the MySQL connection
+	 * @param user
+	 *            The user name for the MySQL connection
+	 * @param pw
+	 *            The password for the MySQL connection
+	 * @param database
+	 *            The data base for the MySQL connection
 	 */
-	public void addMetaFeatureGroup(Map<String,List<String>> metafeatureGroups) {
+	public void addMetaFeatureGroup(Map<String, List<String>> metafeatureGroups) {
 		openConnection();
-		
-		Map<String,String> map = new HashMap<String,String>();
+
+		Map<String, String> map = new HashMap<String, String>();
 		metafeatureGroups.forEach((name, list) -> {
 			map.clear();
 			list.forEach(elem -> {
@@ -678,85 +771,88 @@ public class MetaDataDataBaseConnection {
 			});
 
 		});
-		
+
 		closeConnection();
 	}
-	
+
 	public static String[] convertOptionsStringToArray(String serializedOptions) {
-		return Arrays.stream(serializedOptions.substring(1, serializedOptions.length()-1).split(",")).map(String::trim).toArray(String[]::new);
+		return Arrays.stream(serializedOptions.substring(1, serializedOptions.length() - 1).split(","))
+				.map(String::trim).toArray(String[]::new);
 	}
-	
+
 	public static String convertOptionsArrayToString(String[] options) {
 		return Arrays.toString(options);
 	}
 
-	private Instances getInstancesFromResultSetForClassifiers(ResultSet resultSet, List<Integer> datasetIds,
+	private Instances getInstancesFromResultSetForClassifiers(ResultSet resultSet, List<String> datasetIdentifiers,
 			List<String> classifierSetMembers, String instancesName) throws SQLException {
 		// Create instances
 		ArrayList<Attribute> attributes = new ArrayList<Attribute>();
-		attributes.add(new Attribute(COLUMN_LABEL_DATASET_ID));
+		attributes.add(new Attribute(COLUMN_LABEL_DATASET_ID, (FastVector<String>)null));
 		classifierSetMembers.forEach(member -> attributes.add(new Attribute(member)));
 		Instances instances = new Instances(instancesName, attributes, 0);
 
 		// Create instance for each data set with id
-		TreeMap<Integer, DenseInstance> instancesForDataSets = new TreeMap<Integer, DenseInstance>();
-		datasetIds.forEach(datasetId -> {
+		TreeMap<String, DenseInstance> instancesForDataSets = new TreeMap<>();
+		for (int i = 0; i < datasetIdentifiers.size(); i++) {
 			double[] values = new double[attributes.size()];
 			Arrays.fill(values, Double.NaN);
-			values[0] = datasetId;
 			DenseInstance instance = new DenseInstance(1, values);
-			instancesForDataSets.put(datasetId, instance);
-		});
+			instancesForDataSets.put(datasetIdentifiers.get(i), instance);
+		}
 
 		// Gather results
 		while (resultSet.next()) {
 			Integer dataSetId = resultSet.getInt(COLUMN_LABEL_DATASET_ID);
+			String datasetOrigin = resultSet.getString(COLUMN_LABEL_DATASET_ORIGIN);
 			String classifierName = resultSet.getString(COLUMN_LABEL_CLASSIFIER_NAME);
 			String classifierConfiguration = resultSet.getString(COLUMN_LABEL_CLASSIFIER_CONFIGURATION);
 			Double performanceValue = resultSet.getDouble(COLUMN_LABEL_CLASSIFIER_PERFORMANCE);
 			performanceValue = performanceValue == -1 ? Double.NaN : performanceValue;
-			instancesForDataSets.get(dataSetId).setValue(instances
+			instancesForDataSets.get(merge(dataSetId, datasetOrigin)).setValue(instances
 					.attribute(classifierName + CLASSIFIER_NAME_CONFIG_SEPARATOR + classifierConfiguration).index(),
 					performanceValue);
 		}
 
-		for (Integer datasetId : instancesForDataSets.navigableKeySet()) {
-			instances.add(instancesForDataSets.get(datasetId));
+		for (String datasetId_with_origin : instancesForDataSets.navigableKeySet()) {
+			instances.add(instancesForDataSets.get(datasetId_with_origin));
+			instances.get(instances.numInstances()-1).setValue(0, datasetId_with_origin);
 		}
 
 		return instances;
 	}
 
-	private Instances getInstancesFromResultSetForMetaData(ResultSet resultSet, List<Integer> datasetIds,
+	private Instances getInstancesFromResultSetForMetaData(ResultSet resultSet, List<String> datasetIdentifiers,
 			List<String> metaDataSetMembers, String instancesName) throws SQLException {
 		// Create instances
 		ArrayList<Attribute> attributes = new ArrayList<Attribute>();
-		attributes.add(new Attribute(COLUMN_LABEL_DATASET_ID));
+		attributes.add(new Attribute(COLUMN_LABEL_DATASET_ID,(FastVector<String>)null));
 		metaDataSetMembers.forEach(member -> attributes.add(new Attribute(member)));
 		Instances instances = new Instances(instancesName, attributes, 0);
 
 		// Create instance for each data set with id
-		TreeMap<Integer, DenseInstance> instancesForDataSets = new TreeMap<Integer, DenseInstance>();
-		datasetIds.forEach(datasetId -> {
+		TreeMap<String, DenseInstance> instancesForDataSets = new TreeMap<>();
+		for (int i = 0; i < datasetIdentifiers.size(); i++) {
 			double[] values = new double[attributes.size()];
 			Arrays.fill(values, Double.NaN);
-			values[0] = datasetId;
 			DenseInstance instance = new DenseInstance(1, values);
-			instancesForDataSets.put(datasetId, instance);
-		});
+			instancesForDataSets.put(datasetIdentifiers.get(i), instance);
+		}
 
 		// Gather results
 		while (resultSet.next()) {
 			Integer dataSetId = resultSet.getInt(COLUMN_LABEL_DATASET_ID);
+			String datasetOrigin = resultSet.getString(COLUMN_LABEL_DATASET_ORIGIN);
 			String metafeatureName = resultSet.getString(MetaDataDataBaseConnection.COLUMN_LABEL_METAFEATURE_NAME);
 			Double metafeatureValue = resultSet.getDouble(MetaDataDataBaseConnection.COLUMN_LABEL_METAFEATURE_VALUE);
 			metafeatureValue = metafeatureValue == -1 ? Double.NaN : metafeatureValue;
-			instancesForDataSets.get(dataSetId).setValue(instances.attribute(metafeatureName).index(),
-					metafeatureValue);
+			instancesForDataSets.get(merge(dataSetId, datasetOrigin))
+					.setValue(instances.attribute(metafeatureName).index(), metafeatureValue);
 		}
 
-		for (Integer datasetId : instancesForDataSets.navigableKeySet()) {
-			instances.add(instancesForDataSets.get(datasetId));
+		for (String datasetId_with_origin : instancesForDataSets.navigableKeySet()) {
+			instances.add(instancesForDataSets.get(datasetId_with_origin));
+			instances.get(instances.numInstances()-1).setValue(0, datasetId_with_origin);
 		}
 
 		return instances;
@@ -780,6 +876,10 @@ public class MetaDataDataBaseConnection {
 		closeConnection();
 
 		return availableSets;
+	}
+
+	private String merge(int datasetId, String datasetOrigin) {
+		return datasetId + dataset_origin_separator + datasetOrigin;
 	}
 
 	private void openConnection() {
