@@ -406,7 +406,7 @@ public class MetaDataDataBaseConnection {
 
 	/**
 	 * Gets the ids of the data sets contained in the given data set set ordered by
-	 * id.
+	 * id. *Current Method*
 	 * 
 	 * @param setName
 	 *            The name of the data set set
@@ -432,6 +432,8 @@ public class MetaDataDataBaseConnection {
 		}
 
 		closeConnection();
+		System.out.println(metaDataSetMembers);
+		System.out.println(new ArrayList<String>(metaDataSetMembers).get(0).getClass().getName());
 		return new ArrayList<String>(metaDataSetMembers);
 	}
 
